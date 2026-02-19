@@ -326,23 +326,43 @@ impl Paths {
         } else {
             macro_name.to_string()
         };
-        let call_site_path = Self::get_call_site_rel();
-        let output_dir = Self::get_output_root()?.join(&call_site_path).join(&name);
-        let target = path::find_parent(&output_dir, "target")?;
-        let workspace = path::parent(target)?.to_path_buf();
-        let call_site_file = workspace.join(&call_site_path);
-        let cargo_toml_path = find_cargo_configs(&call_site_file)?;
-        let crate_config = cargo_toml_path.crate_config.clone();
+
+        // Get the absolute call-site file path directly from the proc_macro API.
+        let call_site_file_relative = proc_macro::Span::call_site()
+            .local_file()
+            .context(|| error!("Could not determine call site file path."))?;
+        let call_site_file_absolute = std::env::current_dir()
+            .context("Could not determine the current directory.")?
+            .join(&call_site_file_relative);
+
+        // Find cargo configs by walking up from the call-site file.
+        let cargo_toml_path = find_cargo_configs(&call_site_file_absolute)?;
+
+        // Derive the workspace root from the cargo config hierarchy.
+        let workspace = Self::workspace_from_cargo_configs(&cargo_toml_path)?;
+
+        // Make the call-site path relative to the workspace for output directory organization.
+        let call_site_relative = call_site_file_absolute
+            .strip_prefix(&workspace)
+            .unwrap_or(&call_site_file_absolute)
+            .with_extension("");
+
+        let output_dir = Self::get_output_root()?
+            .join(&call_site_relative)
+            .join(&name);
+
+        let crate_config = path::parent(&cargo_toml_path.crate_config)?.to_path_buf();
         let cargo_toml_path = Some(cargo_toml_path);
         let one_shot_output_dir = false;
         let out = Self {
             workspace,
             output_dir,
             crate_config,
-            call_site_file,
+            call_site_file: call_site_file_absolute,
             cargo_toml_path,
-            one_shot_output_dir
-        }.init(options);
+            one_shot_output_dir,
+        }
+        .init(options);
         Ok(out)
     }
 
@@ -350,8 +370,11 @@ impl Paths {
     fn new(options: MacroOptions, _macro_name: &str, input_str: &str) -> Result<Self> {
         let name = Self::project_name_from_input(input_str);
         let output_dir = Self::get_output_root()?.join(&name);
-        let target = path::find_parent(&output_dir, "target")?;
-        let workspace = path::parent(target)?.to_path_buf();
+
+        let manifest_directory = std::env::var("CARGO_MANIFEST_DIR").expect("must be set");
+        let cargo_configs = find_cargo_configs(Path::new(&manifest_directory))?;
+        let workspace = Self::workspace_from_cargo_configs(&cargo_configs)?;
+
         let cargo_toml_path = None;
         let one_shot_output_dir = false;
         Ok(Self { workspace, output_dir, cargo_toml_path, one_shot_output_dir }.init(options))
@@ -372,42 +395,10 @@ impl Paths {
         self
     }
 
-    #[cfg(nightly)]
-    fn get_call_site_rel() -> PathBuf {
-        // Sometimes `proc_macro::Span::call_site()` returns a relative path, sometimes an absolute
-        // one. In the latter case, we need to discover the relative part from the project root.
-        let mut call_site_path = proc_macro::Span::call_site()
-            .local_file()
-            .unwrap_or_default();
-        call_site_path.set_extension("");
-        if call_site_path.is_relative() {
-            return call_site_path.to_path_buf();
-        }
-
-        // We strip the common prefix of `proc_macro::Span::call_site()` and `OUT_DIR`.
-        let mut common_prefix_len = 0;
-        let mut common_prefix = PathBuf::new();
-        let mut components1 = call_site_path.components();
-        let mut components2 = Path::new(OUT_DIR).components();
-        while let (Some(part1), Some(part2)) = (components1.next(), components2.next()) {
-            if part1 == part2 {
-                common_prefix_len += 1;
-                common_prefix.push(part1);
-            } else {
-                break;
-            }
-        }
-
-        // We don't want to strip small prefix, like `/` or `C:\\`. E.g. when running tests, cargo
-        // generates projects in `var/folders/wm/...`
-        if common_prefix_len <= 3 {
-            return call_site_path.to_path_buf();
-        }
-
-        match call_site_path.strip_prefix(&common_prefix) {
-            Ok(relative_path) => relative_path.to_path_buf(),
-            Err(_) => call_site_path.to_path_buf(), // Should not happen
-        }
+    fn workspace_from_cargo_configs(configs: &CargoConfigPaths) -> Result<PathBuf> {
+        let config_path = configs.workspace_config.as_ref()
+            .unwrap_or(&configs.crate_config);
+        path::parent(config_path).map(|parent| parent.to_path_buf())
     }
 
     fn project_name_from_input(input_str: &str) -> String {
