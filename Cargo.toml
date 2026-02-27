@@ -61,3 +61,7 @@ unwrap_used = "warn"
 #multiple_crate_versions = "warn"
 #indexing_slicing = "warn"
 #allow_attributes = "warn" // false positives
+
+[profile.panic-abort]
+inherits = "dev"
+panic = "abort"
