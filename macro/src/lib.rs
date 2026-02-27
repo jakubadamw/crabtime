@@ -585,10 +585,10 @@ impl CargoConfig {
     }
 
     fn is_workspace_table(value: &toml::Value) -> bool {
-        if let toml::Value::Table(table) = value {
-            if let Some(toml::Value::Boolean(true)) = table.get("workspace") {
-                return true;
-            }
+        if let toml::Value::Table(table) = value
+            && let Some(toml::Value::Boolean(true)) = table.get("workspace")
+        {
+            return true;
         }
         false
     }
@@ -801,18 +801,17 @@ fn expand_expand_macro(input: TokenStream) -> TokenStream {
     let mut output = TokenStream::new();
     let mut i = 0;
     while i < tokens.len() {
-        if let TokenTree::Ident(ref ident) = tokens[i] {
-            if *ident == "expand" && i + 1 < tokens.len() {
-                if let TokenTree::Punct(ref excl) = tokens[i + 1] {
-                    if excl.as_char() == '!' && i + 2 < tokens.len() {
-                        if let TokenTree::Group(ref group) = tokens[i + 2] {
-                            output.extend(group.stream());
-                            i += 3;
-                            continue;
-                        }
-                    }
-                }
-            }
+        if let TokenTree::Ident(ref ident) = tokens[i]
+            && *ident == "expand"
+            && i + 1 < tokens.len()
+            && let TokenTree::Punct(ref excl) = tokens[i + 1]
+            && excl.as_char() == '!'
+            && i + 2 < tokens.len()
+            && let TokenTree::Group(ref group) = tokens[i + 2]
+        {
+            output.extend(group.stream());
+            i += 3;
+            continue;
         }
         match &tokens[i] {
             TokenTree::Group(group) => {
@@ -984,15 +983,13 @@ fn print_tokens_internal(tokens: &TokenStream) -> PrintOutput {
         debug!("{i}: [{token_start:?}-{token_end:?}] [{prev_token_end:?}]: {token}");
 
         // check if the punct has set flags to have no spaces
-        if is_brace || prev_token_was_brace {
-            if let Some(prev_token_end) = prev_token_end {
-                if prev_token_end.line == token_start.line
-                    && prev_token_end.column >= token_start.column
-                    && output.ends_with(" ")
-                {
-                    output.pop();
-                }
-            }
+        if (is_brace || prev_token_was_brace)
+            && let Some(prev_token_end) = prev_token_end
+            && prev_token_end.line == token_start.line
+            && prev_token_end.column >= token_start.column
+            && output.ends_with(" ")
+        {
+            output.pop();
         }
         prev_token_was_brace = is_brace;
 
@@ -1074,20 +1071,20 @@ fn parse_args(
                     pat = quote! {#pat, };
                 }
                 is_first = false;
-                if let syn::FnArg::Typed(pat_type) = arg {
-                    if let syn::Pat::Ident(name) = &*pat_type.pat {
-                        let name_str = name.ident.to_string();
-                        let ty = &*pat_type.ty;
-                        code = quote! {
-                            #code
-                            let #name: #ty =
-                        };
-                        if let Some((param_pat, param_code)) = parse_arg_type(&name_str, ty) {
-                            pat = quote! {#pat #param_pat};
-                            code = quote! {#code #param_code};
-                        }
-                        code = quote! {#code;};
+                if let syn::FnArg::Typed(pat_type) = arg
+                    && let syn::Pat::Ident(name) = &*pat_type.pat
+                {
+                    let name_str = name.ident.to_string();
+                    let ty = &*pat_type.ty;
+                    code = quote! {
+                        #code
+                        let #name: #ty =
+                    };
+                    if let Some((param_pat, param_code)) = parse_arg_type(&name_str, ty) {
+                        pat = quote! {#pat #param_pat};
+                        code = quote! {#code #param_code};
                     }
+                    code = quote! {#code;};
                 }
             }
             pat = quote! {#pat $(,)?};
@@ -1103,12 +1100,12 @@ fn parse_arg_type(pfx: &str, ty: &syn::Type) -> Option<(TokenStream, TokenStream
         if last_segment.ident == "Vec" {
             if let syn::PathArguments::AngleBracketed(angle_bracketed) = &last_segment.arguments {
                 let generic_arg = angle_bracketed.args.first()?;
-                if let syn::GenericArgument::Type(inner_ty) = generic_arg {
-                    if let Some((inner_pat, inner_code)) = parse_inner_type(pfx, inner_ty) {
-                        let pat = quote! {[$(#inner_pat),*$(,)?]};
-                        let code = quote! { [$(#inner_code),*].into_iter().collect() };
-                        return Some((pat, code));
-                    }
+                if let syn::GenericArgument::Type(inner_ty) = generic_arg
+                    && let Some((inner_pat, inner_code)) = parse_inner_type(pfx, inner_ty)
+                {
+                    let pat = quote! {[$(#inner_pat),*$(,)?]};
+                    let code = quote! { [$(#inner_code),*].into_iter().collect() };
+                    return Some((pat, code));
                 }
             }
         } else {
@@ -1125,14 +1122,13 @@ fn parse_inner_type(pfx: &str, ty: &syn::Type) -> Option<(TokenStream, TokenStre
     let arg = quote! {$#arg_ident};
     match ty {
         syn::Type::Reference(ty_ref) => {
-            if let syn::Type::Path(inner_path) = &*ty_ref.elem {
-                if let Some(inner_seg) = inner_path.path.segments.last() {
-                    if inner_seg.ident == "str" {
-                        let pat = quote! {#arg:expr};
-                        let code = quote! {crabtime::stringify_if_needed!{#arg}};
-                        return Some((pat, code));
-                    }
-                }
+            if let syn::Type::Path(inner_path) = &*ty_ref.elem
+                && let Some(inner_seg) = inner_path.path.segments.last()
+                && inner_seg.ident == "str"
+            {
+                let pat = quote! {#arg:expr};
+                let code = quote! {crabtime::stringify_if_needed!{#arg}};
+                return Some((pat, code));
             }
         }
         syn::Type::Path(inner_type_path) => {
